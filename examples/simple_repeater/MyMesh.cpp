@@ -732,6 +732,17 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
       char *reply = (char *)&temp[5];
       if (is_retry) {
         *reply = 0;
+      } else if (strcmp(command, "OMCOLLECT") == 0) {
+        // RC: store requester context, trigger RP2040 relay over serial
+        _omcollect.active = true;
+        _omcollect.requester = client->id;
+        memcpy(_omcollect.secret, secret, PUB_KEY_SIZE);
+        _omcollect.out_path_len = client->out_path_len;
+        if (client->out_path_len != OUT_PATH_UNKNOWN && client->out_path_len > 0) {
+          memcpy(_omcollect.out_path, client->out_path, client->out_path_len);
+        }
+        Serial.println("OMCOLLECT");
+        *reply = 0; // no immediate reply — RP2040 sends RELAY| lines that become individual DMs
       } else {
         handleCommand(sender_timestamp, command, reply);
       }
@@ -874,6 +885,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   uptime_millis = 0;
   next_local_advert = next_flood_advert = 0;
   dirty_contacts_expiry = 0;
+  memset(&_omcollect, 0, sizeof(_omcollect));
   set_radio_at = revert_radio_at = 0;
   _logging = false;
   region_load_active = false;
@@ -1265,7 +1277,31 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
       sendNodeDiscoverReq();
       strcpy(reply, "OK - Discover sent");
     }
-  } else{
+  } else if (sender_timestamp == 0 && memcmp(command, "RELAY|", 6) == 0 && _omcollect.active) {
+    // RC: forward RP2040 relay line as DM to the OMCOLLECT requester
+    const char* obs = command + 6;
+    int text_len = strlen(obs);
+    if (text_len > 0 && text_len <= 160) {
+      uint8_t temp[166];
+      uint32_t ts = getRTCClock()->getCurrentTimeUnique();
+      memcpy(temp, &ts, 4);
+      temp[4] = (TXT_TYPE_CLI_DATA << 2);
+      memcpy(&temp[5], obs, text_len);
+      auto pkt = createDatagram(PAYLOAD_TYPE_TXT_MSG, _omcollect.requester,
+                                _omcollect.secret, temp, 5 + text_len);
+      if (pkt) {
+        if (_omcollect.out_path_len == OUT_PATH_UNKNOWN) {
+          sendFlood(pkt, CLI_REPLY_DELAY_MILLIS, 0);
+        } else {
+          sendDirect(pkt, _omcollect.out_path, _omcollect.out_path_len, CLI_REPLY_DELAY_MILLIS);
+        }
+      }
+    }
+    if (strcmp(obs, "OMCOLLECT_END") == 0) {
+      _omcollect.active = false;
+    }
+    reply[0] = 0;
+  } else {
     _cli.handleCommand(sender_timestamp, command, reply);  // common CLI commands
   }
 }

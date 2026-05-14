@@ -68,6 +68,15 @@ struct NeighbourInfo {
   int8_t snr; // multiplied by 4, user should divide to get float value
 };
 
+// RC: stored context for in-flight OMCOLLECT request — set when DM arrives, cleared on OMCOLLECT_END
+struct OmcollectCtx {
+  bool active;
+  mesh::Identity requester;
+  uint8_t secret[PUB_KEY_SIZE];
+  uint8_t out_path[MAX_PATH_SIZE];
+  uint8_t out_path_len;
+};
+
 #ifndef FIRMWARE_BUILD_DATE
   #define FIRMWARE_BUILD_DATE   "19 Apr 2026"
 #endif
@@ -103,6 +112,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   unsigned long pending_discover_until;
   bool region_load_active;
   unsigned long dirty_contacts_expiry;
+  OmcollectCtx _omcollect;
 #if MAX_NEIGHBOURS
   NeighbourInfo neighbours[MAX_NEIGHBOURS];
 #endif
