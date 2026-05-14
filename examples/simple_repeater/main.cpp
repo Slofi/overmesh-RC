@@ -30,6 +30,9 @@ static unsigned long userBtnDownAt = 0;
 
 void setup() {
   Serial.begin(115200);
+  // RC: hardware UART for RP2040-PiZero — GPIO 9 (RX), 10 (TX), same pads as RS232 bridge
+  Serial1.setPins(9, 10);
+  Serial1.begin(115200);
   delay(1000);
   Serial.println("RC ready — waiting for mesh traffic");
 
