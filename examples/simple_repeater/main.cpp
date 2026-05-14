@@ -31,6 +31,7 @@ static unsigned long userBtnDownAt = 0;
 void setup() {
   Serial.begin(115200);
   delay(1000);
+  Serial.println("RC ready — waiting for mesh traffic");
 
   board.begin();
 
@@ -105,7 +106,14 @@ void setup() {
 #endif
 }
 
+static unsigned long _rc_last_hb = 0;
+
 void loop() {
+  if (millis() - _rc_last_hb > 5000) {
+    Serial.printf("RC alive | uptime=%lus\n", millis()/1000);
+    _rc_last_hb = millis();
+  }
+
   int len = strlen(command);
   while (Serial.available() && len < sizeof(command)-1) {
     char c = Serial.read();

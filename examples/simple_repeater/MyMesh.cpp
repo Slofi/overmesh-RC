@@ -469,6 +469,15 @@ void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
 }
 
 void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
+  // RC: OBS|RX — coverage observation (all non-advert packets; adverts captured in OBS|ADV)
+  if (pkt->getPayloadType() != PAYLOAD_TYPE_ADVERT) {
+    uint8_t pkt_hash[MAX_HASH_SIZE];
+    pkt->calculatePacketHash(pkt_hash);
+    Serial.print("OBS|RX|");
+    mesh::Utils::printHex(Serial, pkt_hash, 4);
+    Serial.printf("|%.1f|%.1f|%lu\n", _radio->getLastRSSI(), _radio->getLastSNR(), (unsigned long)(millis()/1000));
+  }
+
 #ifdef WITH_BRIDGE
   if (_prefs.bridge_pkt_src == 1) {
     bridge.sendPacket(pkt);
@@ -633,6 +642,11 @@ static bool isShare(const mesh::Packet *packet) {
 void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32_t timestamp,
                           const uint8_t *app_data, size_t app_data_len) {
   mesh::Mesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len); // chain to super impl
+
+  // RC: OBS|ADV — full-identity observation (pubkey + signal)
+  Serial.print("OBS|ADV|");
+  mesh::Utils::printHex(Serial, id.pub_key, PUB_KEY_SIZE);
+  Serial.printf("|%.1f|%.1f|%lu\n", _radio->getLastRSSI(), packet->getSNR(), (unsigned long)(millis()/1000));
 
   // if this a zero hop advert (and not via 'Share'), add it to neighbours
   if (packet->path_len == 0 && !isShare(packet)) {
