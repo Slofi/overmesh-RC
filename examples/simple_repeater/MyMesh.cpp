@@ -1405,7 +1405,11 @@ bool MyMesh::hasPendingWork() const {
 void MyMesh::_loadChannels() {
   memset(_channels, 0, sizeof(_channels));
   _num_channels = 0;
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  File file = _fs->open("/rptr_channels", FILE_O_READ);
+#else
   File file = _fs->open("/rptr_channels", "r");
+#endif
   if (!file) return;
   uint8_t unused[4];
   for (int i = 0; i < MAX_RPTR_CHANNELS; i++) {
@@ -1424,7 +1428,11 @@ void MyMesh::_loadChannels() {
 }
 
 void MyMesh::_saveChannels() {
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  File file = _fs->open("/rptr_channels", FILE_O_WRITE);
+#else
   File file = _fs->open("/rptr_channels", "w");
+#endif
   if (!file) return;
   uint8_t unused[4] = {0, 0, 0, 0};
   for (int i = 0; i < MAX_RPTR_CHANNELS; i++) {
