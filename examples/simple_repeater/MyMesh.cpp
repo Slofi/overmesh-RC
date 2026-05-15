@@ -1521,6 +1521,7 @@ void MyMesh::_loadMsgStore() {
 
 void MyMesh::_saveMsgStore() {
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  _fs->remove("/msg_store");
   File f = _fs->open("/msg_store", FILE_O_WRITE);
 #else
   File f = _fs->open("/msg_store", "w");
@@ -1597,8 +1598,10 @@ void MyMesh::_loadChannels() {
     bool has_key = false;
     for (int j = 0; j < 32; j++) if (_channels[i].channel.secret[j]) { has_key = true; break; }
     if (has_key) {
+      static const uint8_t _z[16] = {0};
+      int hash_len = (memcmp(&_channels[i].channel.secret[16], _z, 16) == 0) ? 16 : 32;
       mesh::Utils::sha256(_channels[i].channel.hash, sizeof(_channels[i].channel.hash),
-                          _channels[i].channel.secret, 32);
+                          _channels[i].channel.secret, hash_len);
       _num_channels = i + 1;
     }
   }
@@ -1607,6 +1610,7 @@ void MyMesh::_loadChannels() {
 
 void MyMesh::_saveChannels() {
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  _fs->remove("/rptr_channels");
   File file = _fs->open("/rptr_channels", FILE_O_WRITE);
 #else
   File file = _fs->open("/rptr_channels", "w");
