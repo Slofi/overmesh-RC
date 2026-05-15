@@ -726,14 +726,22 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
       strcpy(reply, "Error: unsupported by this board");
     };
   } else if (memcmp(config, "channel ", 8) == 0) {
-    // "set channel <idx> <name> <key_b64>"
+    // "set channel <idx> <name> <key_b64>" — name may contain spaces
+    // parse: first space = idx end, last space = key start, middle = name
     strcpy(tmp, &config[8]);
-    const char* parts[3];
-    int num = mesh::Utils::parseTextParts(tmp, parts, 3, ' ');
-    if (num >= 3) {
-      _callbacks->setChannel(atoi(parts[0]), parts[1], parts[2], reply, MAX_PACKET_PAYLOAD);
-    } else {
+    char* first = strchr(tmp, ' ');
+    if (!first) {
       strcpy(reply, "Error: usage: set channel <idx> <name> <key_b64>");
+    } else {
+      *first++ = 0;
+      int idx = atoi(tmp);
+      char* last = strrchr(first, ' ');
+      if (!last) {
+        strcpy(reply, "Error: usage: set channel <idx> <name> <key_b64>");
+      } else {
+        *last++ = 0;
+        _callbacks->setChannel(idx, first, last, reply, MAX_PACKET_PAYLOAD);
+      }
     }
   } else {
     sprintf(reply, "unknown config: %s", config);
