@@ -141,13 +141,19 @@ uint8_t MyMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* secr
     }
 
     client = acl.putClient(sender, 0);  // add to contacts (if not already known)
-    if (sender_timestamp <= client->last_timestamp) {
+    if (client == NULL) {
+      MESH_DEBUG_PRINTLN("Client table full!");
+      return 0;
+    }
+    // Use last_login_ts (not last_timestamp) — login and cmd timestamps come from different
+    // clock sources (MC radio vs Python time.time()), so they must be tracked separately.
+    if (sender_timestamp <= client->last_login_ts) {
       MESH_DEBUG_PRINTLN("Possible login replay attack!");
-      return 0;  // FATAL: client table is full -OR- replay attack
+      return 0;
     }
 
     MESH_DEBUG_PRINTLN("Login success!");
-    client->last_timestamp = sender_timestamp;
+    client->last_login_ts = sender_timestamp;
     client->last_activity = getRTCClock()->getCurrentTime();
     client->permissions &= ~0x03;
     client->permissions |= perms;

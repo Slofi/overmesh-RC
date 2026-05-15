@@ -18,7 +18,8 @@ struct ClientInfo {
   uint8_t out_path_len;
   uint8_t out_path[MAX_PATH_SIZE];
   uint8_t shared_secret[PUB_KEY_SIZE];
-  uint32_t last_timestamp;   // by THEIR clock  (transient)
+  uint32_t last_timestamp;   // by THEIR clock  (transient) — command replay guard
+  uint32_t last_login_ts;    // by THEIR clock  (transient) — login replay guard (separate from commands)
   uint32_t last_activity;    // by OUR clock    (transient)
   union  {
     struct {
