@@ -640,6 +640,10 @@ void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const m
       mesh::Packet* path = createPathReturn(sender, secret, packet->path, packet->path_len,
                                             PAYLOAD_TYPE_RESPONSE, reply_data, reply_len);
       if (path) sendFloodReply(path, SERVER_RESPONSE_DELAY, packet->getPathHashSize());
+      // Backup plain RESPONSE — PATH packet is single-attempt; if lost, login times out even though
+      // T114 processed it. Sending a staggered RESPONSE datagram gives a second delivery chance.
+      mesh::Packet* backup = createDatagram(PAYLOAD_TYPE_RESPONSE, sender, secret, reply_data, reply_len);
+      if (backup) sendFloodReply(backup, SERVER_RESPONSE_DELAY + 500, packet->getPathHashSize());
     } else if (reply_path_len < 0) {
       mesh::Packet* reply = createDatagram(PAYLOAD_TYPE_RESPONSE, sender, secret, reply_data, reply_len);
       if (reply) sendFloodReply(reply, SERVER_RESPONSE_DELAY, packet->getPathHashSize());
