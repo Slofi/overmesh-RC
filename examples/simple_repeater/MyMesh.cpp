@@ -60,6 +60,12 @@
 
 #define LAZY_CONTACTS_WRITE_DELAY    5000
 
+#if defined(HELTEC_T114)
+  #define RC_SERIAL Serial2
+#else
+  #define RC_SERIAL Serial1
+#endif
+
 void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float snr) {
 #if MAX_NEIGHBOURS // check if neighbours enabled
   // find existing neighbour, else use least recently updated
@@ -476,9 +482,9 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
     Serial.print("OBS|RX|");
     mesh::Utils::printHex(Serial, pkt_hash, 4);
     Serial.printf("|%.1f|%.1f|%lu\n", _radio->getLastRSSI(), _radio->getLastSNR(), (unsigned long)(millis()/1000));
-    Serial1.print("OBS|RX|");
-    mesh::Utils::printHex(Serial1, pkt_hash, 4);
-    Serial1.printf("|%.1f|%.1f|%lu\n", _radio->getLastRSSI(), _radio->getLastSNR(), (unsigned long)(millis()/1000));
+    RC_SERIAL.print("OBS|RX|");
+    mesh::Utils::printHex(RC_SERIAL, pkt_hash, 4);
+    RC_SERIAL.printf("|%.1f|%.1f|%lu\n", _radio->getLastRSSI(), _radio->getLastSNR(), (unsigned long)(millis()/1000));
   }
 
 #ifdef WITH_BRIDGE
@@ -650,9 +656,9 @@ void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32
   Serial.print("OBS|ADV|");
   mesh::Utils::printHex(Serial, id.pub_key, PUB_KEY_SIZE);
   Serial.printf("|%.1f|%.1f|%lu\n", _radio->getLastRSSI(), packet->getSNR(), (unsigned long)(millis()/1000));
-  Serial1.print("OBS|ADV|");
-  mesh::Utils::printHex(Serial1, id.pub_key, PUB_KEY_SIZE);
-  Serial1.printf("|%.1f|%.1f|%lu\n", _radio->getLastRSSI(), packet->getSNR(), (unsigned long)(millis()/1000));
+  RC_SERIAL.print("OBS|ADV|");
+  mesh::Utils::printHex(RC_SERIAL, id.pub_key, PUB_KEY_SIZE);
+  RC_SERIAL.printf("|%.1f|%.1f|%lu\n", _radio->getLastRSSI(), packet->getSNR(), (unsigned long)(millis()/1000));
 
   // if this a zero hop advert (and not via 'Share'), add it to neighbours
   if (packet->path_len == 0 && !isShare(packet)) {
@@ -748,7 +754,7 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
           memcpy(_omcollect.out_path, client->out_path, client->out_path_len);
         }
         Serial.println("OMCOLLECT");
-        Serial1.println("OMCOLLECT");
+        RC_SERIAL.println("OMCOLLECT");
         *reply = 0; // no immediate reply — RP2040 sends RELAY| lines that become individual DMs
       } else {
         handleCommand(sender_timestamp, command, reply);

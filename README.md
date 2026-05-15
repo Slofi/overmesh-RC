@@ -6,7 +6,7 @@ A fork of [MeshCore](https://github.com/meshcore-dev/MeshCore) RPTR firmware tha
 
 ## What it does
 
-A deployed Overmesh-RC node sits at a remote vantage point (hilltop, rooftop, solar-powered) and passively logs every MC mesh node it hears. When triggered by OverMesh over the mesh, it delivers the collected observations back as encrypted DMs — which OM stores, maps, and visualizes automatically.
+A deployed Overmesh-RC node sits at a remote vantage point (hilltop, rooftop, solar-powered) and passively logs every MC mesh node it hears. When triggered by OverMesh over the mesh, it delivers the collected observations back as encrypted DMs, which OM stores, maps, and visualizes automatically.
 
 **Two data streams:**
 
@@ -15,7 +15,7 @@ A deployed Overmesh-RC node sits at a remote vantage point (hilltop, rooftop, so
 | `OBS\|ADV` | Every received advertisement | Full sender pubkey + RSSI + SNR + timestamp |
 | `OBS\|RX` | All other received packets | 4-byte packet hash + RSSI + SNR + timestamp |
 
-ADV observations carry full node identity — useful for passive intel (who is on the mesh, how strong). RX observations capture anonymous activity — useful for coverage mapping (how far the mesh reaches from this vantage point).
+ADV observations carry full node identity and are imported by OM passive intel. RX observations capture anonymous activity and are currently kept out of OM `passive_obs`; they are reserved for a future coverage-only table/view.
 
 ---
 
@@ -55,11 +55,28 @@ Both boards are 3.3V logic — direct connection, no level shifter needed.
 
 ## What this firmware adds (patches over stock MeshCore RPTR)
 
-- **`onAdvertRecv`** — outputs `OBS|ADV|<pubkey>|<rssi>|<snr>|<ts>` to Serial and Serial1
-- **`logRx`** — outputs `OBS|RX|<hash4>|<rssi>|<snr>|<ts>` to Serial and Serial1
+- **`onAdvertRecv`** — outputs `OBS|ADV|<pubkey>|<rssi>|<snr>|<ts>` to USB Serial and the collector UART
+- **`logRx`** — outputs `OBS|RX|<hash4>|<rssi>|<snr>|<ts>` to USB Serial and the collector UART
 - **`onPeerDataRecv`** — intercepts `OMCOLLECT` DM, stores requester identity/path, signals RP2040 via serial
 - **`handleCommand`** — handles `RELAY|<line>` from RP2040: re-encrypts each as a TXT_MSG DM back to the OM requester
-- **`main.cpp` setup** — initializes Serial1 hardware UART on GPIO 9 (RX) / GPIO 10 (TX) at 115200 baud
+- **`main.cpp` setup** — initializes the collector UART on GPIO 9 (RX) / GPIO 10 (TX) at 115200 baud. On Heltec T114 this is `Serial2`.
+- **`main.cpp` loop** — reads completed `RELAY|...` lines from the collector UART and passes them into `handleCommand()`.
+
+### 2026-05-15 bridge bug fix
+
+The first RC build could send `OMCOLLECT` to the RP2040, but it did not read the RP2040's `RELAY|...` replies. The relay handler existed in `MyMesh::handleCommand()`, but `main.cpp` only read command lines from USB `Serial`.
+
+Fix:
+- Added explicit `RC_SERIAL`.
+- On Heltec T114, `RC_SERIAL = Serial2` with `RX=9`, `TX=10`.
+- All collector protocol writes now use `RC_SERIAL`.
+- The main loop reads `RC_SERIAL` and forwards completed relay lines to `handleCommand()`.
+- The RP2040 collector script paces relay lines with a 3-second interval.
+
+Live validation on TestBox after flashing:
+- OM login to the T114 succeeded.
+- `OMCOLLECT` returned `OMCOLLECT_START|RC1|118`.
+- OM imported real `rc_adv` rows with RSSI/SNR and full pubkeys.
 
 ---
 

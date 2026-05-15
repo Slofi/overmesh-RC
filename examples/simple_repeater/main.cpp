@@ -18,6 +18,17 @@ void halt() {
 }
 
 static char command[160];
+static char rc_command[160];
+
+#if defined(HELTEC_T114)
+  #define RC_SERIAL Serial2
+  #define RC_SERIAL_RX 9
+  #define RC_SERIAL_TX 10
+#else
+  #define RC_SERIAL Serial1
+  #define RC_SERIAL_RX 9
+  #define RC_SERIAL_TX 10
+#endif
 
 // For power saving
 unsigned long lastActive = 0; // mark last active time
@@ -31,8 +42,8 @@ static unsigned long userBtnDownAt = 0;
 void setup() {
   Serial.begin(115200);
   // RC: hardware UART for RP2040-PiZero — GPIO 9 (RX), 10 (TX), same pads as RS232 bridge
-  Serial1.setPins(9, 10);
-  Serial1.begin(115200);
+  RC_SERIAL.setPins(RC_SERIAL_RX, RC_SERIAL_TX);
+  RC_SERIAL.begin(115200);
   delay(1000);
   Serial.println("RC ready — waiting for mesh traffic");
 
@@ -94,6 +105,7 @@ void setup() {
   mesh::Utils::printHex(Serial, the_mesh.self_id.pub_key, PUB_KEY_SIZE); Serial.println();
 
   command[0] = 0;
+  rc_command[0] = 0;
 
   sensors.begin();
 
@@ -111,29 +123,35 @@ void setup() {
 
 static unsigned long _rc_last_hb = 0;
 
+static bool readCommandLine(Stream& port, char* buf, size_t buf_size, bool echo) {
+  int len = strlen(buf);
+  while (port.available() && len < (int)buf_size - 1) {
+    char c = port.read();
+    if (c != '\n') {
+      buf[len++] = c;
+      buf[len] = 0;
+      if (echo) Serial.print(c);
+    }
+    if (c == '\r') break;
+  }
+  if (len == (int)buf_size - 1) {
+    buf[buf_size - 1] = '\r';
+  }
+  if (len > 0 && buf[len - 1] == '\r') {
+    if (echo) Serial.print('\n');
+    buf[len - 1] = 0;
+    return true;
+  }
+  return false;
+}
+
 void loop() {
   if (millis() - _rc_last_hb > 5000) {
     Serial.printf("RC alive | uptime=%lus\n", millis()/1000);
     _rc_last_hb = millis();
   }
 
-  int len = strlen(command);
-  while (Serial.available() && len < sizeof(command)-1) {
-    char c = Serial.read();
-    if (c != '\n') {
-      command[len++] = c;
-      command[len] = 0;
-      Serial.print(c);
-    }
-    if (c == '\r') break;
-  }
-  if (len == sizeof(command)-1) {  // command buffer full
-    command[sizeof(command)-1] = '\r';
-  }
-
-  if (len > 0 && command[len - 1] == '\r') {  // received complete line
-    Serial.print('\n');
-    command[len - 1] = 0;  // replace newline with C string null terminator
+  if (readCommandLine(Serial, command, sizeof(command), true)) {
     char reply[160];
     the_mesh.handleCommand(0, command, reply);  // NOTE: there is no sender_timestamp via serial!
     if (reply[0]) {
@@ -141,6 +159,15 @@ void loop() {
     }
 
     command[0] = 0;  // reset command buffer
+  }
+
+  if (readCommandLine(RC_SERIAL, rc_command, sizeof(rc_command), false)) {
+    char reply[160];
+    the_mesh.handleCommand(0, rc_command, reply);
+    if (reply[0]) {
+      Serial.print("RC UART -> "); Serial.println(reply);
+    }
+    rc_command[0] = 0;
   }
 
 #if defined(PIN_USER_BTN) && defined(_SEEED_SENSECAP_SOLAR_H_)
