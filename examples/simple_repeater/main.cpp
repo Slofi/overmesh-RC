@@ -20,12 +20,8 @@ void halt() {
 static char command[160];
 static char rc_command[160];
 
-#if defined(HELTEC_T114)
+#ifdef HELTEC_T114
   #define RC_SERIAL Serial2
-  #define RC_SERIAL_RX 9
-  #define RC_SERIAL_TX 10
-#else
-  #define RC_SERIAL Serial1
   #define RC_SERIAL_RX 9
   #define RC_SERIAL_TX 10
 #endif
@@ -42,10 +38,12 @@ static unsigned long userBtnDownAt = 0;
 void setup() {
   Serial.begin(115200);
   // RC: hardware UART for RP2040-PiZero — GPIO 9 (RX), 10 (TX), same pads as RS232 bridge
+#ifdef HELTEC_T114
   RC_SERIAL.setPins(RC_SERIAL_RX, RC_SERIAL_TX);
   RC_SERIAL.begin(115200);
   delay(1000);
   Serial.println("RC ready — waiting for mesh traffic");
+#endif
 
   board.begin();
 
@@ -121,7 +119,9 @@ void setup() {
 #endif
 }
 
+#ifdef HELTEC_T114
 static unsigned long _rc_last_hb = 0;
+#endif
 
 static bool readCommandLine(Stream& port, char* buf, size_t buf_size, bool echo) {
   int len = strlen(buf);
@@ -146,10 +146,12 @@ static bool readCommandLine(Stream& port, char* buf, size_t buf_size, bool echo)
 }
 
 void loop() {
+#ifdef HELTEC_T114
   if (millis() - _rc_last_hb > 5000) {
     Serial.printf("RC alive | uptime=%lus\n", millis()/1000);
     _rc_last_hb = millis();
   }
+#endif
 
   if (readCommandLine(Serial, command, sizeof(command), true)) {
     char reply[160];
@@ -161,6 +163,7 @@ void loop() {
     command[0] = 0;  // reset command buffer
   }
 
+#ifdef HELTEC_T114
   if (readCommandLine(RC_SERIAL, rc_command, sizeof(rc_command), false)) {
     char reply[160];
     the_mesh.handleCommand(0, rc_command, reply);
@@ -169,6 +172,7 @@ void loop() {
     }
     rc_command[0] = 0;
   }
+#endif
 
 #if defined(PIN_USER_BTN) && defined(_SEEED_SENSECAP_SOLAR_H_)
   // Hold the user button to power off the SenseCAP Solar repeater.
