@@ -78,6 +78,36 @@ struct OmcollectCtx {
   uint8_t out_path_len;
 };
 
+// RC: stored channel message, 256 bytes packed
+#define MAX_STORED_MSGS  20
+#define STORED_MSG_SIZE  256
+
+struct __attribute__((packed)) StoredMsg {
+  uint8_t  valid;           // 1  — 0 = empty slot
+  uint8_t  channel_idx;     // 1
+  int8_t   snr;             // 1  — raw SNR x4 (divide by 4.0 for dB)
+  uint8_t  _pad;            // 1
+  int16_t  rssi;            // 2
+  uint8_t  _pad2[2];        // 2
+  uint32_t timestamp;       // 4
+  uint8_t  sender_hash[6];  // 6  — first 6 bytes of sender pubkey (zeros = unknown)
+  uint8_t  _pad3[2];        // 2
+  char     channel_name[16];// 16
+  char     text[220];       // 220
+};  // total = 256
+
+// RC: stored context for in-flight get messages delivery
+struct MsgFetchCtx {
+  bool active;
+  mesh::Identity requester;
+  uint8_t secret[PUB_KEY_SIZE];
+  uint8_t out_path[MAX_PATH_SIZE];
+  uint8_t out_path_len;
+  int next_idx;   // next logical index (0..total-1) to send
+  int total;      // total valid messages to send
+  unsigned long next_send_at;  // millis() throttle
+};
+
 #ifndef FIRMWARE_BUILD_DATE
   #define FIRMWARE_BUILD_DATE   "19 Apr 2026"
 #endif
@@ -115,6 +145,10 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   bool region_load_active;
   unsigned long dirty_contacts_expiry;
   OmcollectCtx _omcollect;
+  StoredMsg _msg_store[MAX_STORED_MSGS];
+  uint8_t   _msg_wr_idx;
+  uint8_t   _msg_count;
+  MsgFetchCtx _msgfetch;
   ChannelDetails _channels[MAX_RPTR_CHANNELS];
   int _num_channels;
 #if MAX_NEIGHBOURS
@@ -135,6 +169,8 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
 
   void _loadChannels();
   void _saveChannels();
+  void _loadMsgStore();
+  void _saveMsgStore();
 
   void putNeighbour(const mesh::Identity& id, uint32_t timestamp, float snr);
   uint8_t handleLoginReq(const mesh::Identity& sender, const uint8_t* secret, uint32_t sender_timestamp, const uint8_t* data, bool is_flood);
@@ -183,6 +219,7 @@ protected:
   bool filterRecvFloodPacket(mesh::Packet* pkt) override;
 
   void onAnonDataRecv(mesh::Packet* packet, const uint8_t* secret, const mesh::Identity& sender, uint8_t* data, size_t len) override;
+  void onGroupDataRecv(mesh::Packet* packet, uint8_t type, const mesh::GroupChannel& channel, uint8_t* data, size_t len) override;
   int searchPeersByHash(const uint8_t* hash) override;
   void getPeerSharedSecret(uint8_t* dest_secret, int peer_idx) override;
   void onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp, const uint8_t* app_data, size_t app_data_len);
@@ -246,6 +283,7 @@ public:
   int searchChannelsByHash(const uint8_t* hash, mesh::GroupChannel channels[], int max_matches) override;
   void getChannels(char* reply, size_t reply_size) override;
   bool setChannel(int idx, const char* name, const char* key_b64, char* reply, size_t reply_size) override;
+  void getMessages(char* reply, size_t reply_size) override;
 
 #if defined(WITH_BRIDGE)
   void setBridgeState(bool enable) override {

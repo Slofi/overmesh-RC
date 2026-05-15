@@ -780,6 +780,26 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
         Serial.println("OMCOLLECT");
         RC_SERIAL.println("OMCOLLECT");
         *reply = 0; // no immediate reply — RP2040 sends RELAY| lines that become individual DMs
+      } else if (strcmp(command, "get messages") == 0) {
+        // RC: store-and-forward — deliver stored channel messages as DM burst
+        if (_msgfetch.active) {
+          // Already in flight — ignore duplicate request
+          *reply = 0;
+        } else if (_msg_count == 0) {
+          strcpy(reply, "MSGSTORE_EMPTY");
+        } else {
+          _msgfetch.active = true;
+          _msgfetch.requester = client->id;
+          memcpy(_msgfetch.secret, secret, PUB_KEY_SIZE);
+          _msgfetch.out_path_len = client->out_path_len;
+          if (client->out_path_len != OUT_PATH_UNKNOWN && client->out_path_len > 0) {
+            memcpy(_msgfetch.out_path, client->out_path, client->out_path_len);
+          }
+          _msgfetch.next_idx = 0;
+          _msgfetch.total = _msg_count;
+          _msgfetch.next_send_at = 0;  // send first packet immediately
+          *reply = 0;  // no immediate reply — loop() sends the burst
+        }
       } else {
         handleCommand(sender_timestamp, command, reply);
       }
@@ -923,6 +943,10 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   next_local_advert = next_flood_advert = 0;
   dirty_contacts_expiry = 0;
   memset(&_omcollect, 0, sizeof(_omcollect));
+  memset(_msg_store, 0, sizeof(_msg_store));
+  _msg_wr_idx = 0;
+  _msg_count = 0;
+  memset(&_msgfetch, 0, sizeof(_msgfetch));
   set_radio_at = revert_radio_at = 0;
   _logging = false;
   region_load_active = false;
@@ -990,6 +1014,7 @@ void MyMesh::begin(FILESYSTEM *fs) {
   // load persisted prefs
   _cli.loadPrefs(_fs);
   _loadChannels();
+  _loadMsgStore();
   acl.load(_fs, self_id);
   // TODO: key_store.begin();
   region_map.load(_fs);
@@ -1386,6 +1411,79 @@ void MyMesh::loop() {
     dirty_contacts_expiry = 0;
   }
 
+  // RC: MsgFetch delivery — send stored channel messages one per loop tick
+  if (_msgfetch.active && (_msgfetch.next_send_at == 0 || millisHasNowPassed(_msgfetch.next_send_at))) {
+    bool sent_one = false;
+    while (_msgfetch.next_idx < MAX_STORED_MSGS) {
+      // Iterate ring buffer oldest-first
+      int slot = ((int)_msg_wr_idx - (int)_msg_count + _msgfetch.next_idx + MAX_STORED_MSGS) % MAX_STORED_MSGS;
+      _msgfetch.next_idx++;
+      StoredMsg& m = _msg_store[slot];
+      if (!m.valid) continue;
+
+      // Build MSG| line — text is already null-terminated from store
+      char line[MAX_PACKET_PAYLOAD];
+      char sender_hex[13] = {0};
+      for (int i = 0; i < 6; i++) sprintf(&sender_hex[i * 2], "%02x", m.sender_hash[i]);
+      float snr_f = m.snr / 4.0f;
+      int text_avail = (int)sizeof(line) - 60;  // conservative: leave room for prefix fields
+      char text_trunc[200];
+      strncpy(text_trunc, m.text, sizeof(text_trunc) - 1);
+      text_trunc[sizeof(text_trunc) - 1] = 0;
+      snprintf(line, sizeof(line), "MSG|%lu|%s|%.2f|%d|%s|%s",
+               (unsigned long)m.timestamp,
+               m.channel_name,
+               snr_f,
+               (int)m.rssi,
+               sender_hex,
+               text_trunc);
+      (void)text_avail;  // used implicitly by snprintf limit above
+
+      int text_len = strlen(line);
+      if (text_len > 0 && text_len <= 160) {
+        uint8_t temp[166];
+        uint32_t ts = getRTCClock()->getCurrentTimeUnique();
+        memcpy(temp, &ts, 4);
+        temp[4] = (TXT_TYPE_CLI_DATA << 2);
+        memcpy(&temp[5], line, text_len);
+        auto pkt = createDatagram(PAYLOAD_TYPE_TXT_MSG, _msgfetch.requester,
+                                  _msgfetch.secret, temp, 5 + text_len);
+        if (pkt) {
+          if (_msgfetch.out_path_len == OUT_PATH_UNKNOWN) {
+            sendFlood(pkt, CLI_REPLY_DELAY_MILLIS, 0);
+          } else {
+            sendDirect(pkt, _msgfetch.out_path, _msgfetch.out_path_len, CLI_REPLY_DELAY_MILLIS);
+          }
+        }
+      }
+      sent_one = true;
+      _msgfetch.next_send_at = futureMillis(500);  // pace: one message per 500ms
+      break;
+    }
+
+    // Check if we've exhausted all slots
+    if (!sent_one || _msgfetch.next_idx >= MAX_STORED_MSGS) {
+      // Send MSGSTORE_END
+      uint8_t temp[166];
+      uint32_t ts = getRTCClock()->getCurrentTimeUnique();
+      memcpy(temp, &ts, 4);
+      temp[4] = (TXT_TYPE_CLI_DATA << 2);
+      const char* end_line = "MSGSTORE_END";
+      int end_len = strlen(end_line);
+      memcpy(&temp[5], end_line, end_len);
+      auto pkt = createDatagram(PAYLOAD_TYPE_TXT_MSG, _msgfetch.requester,
+                                _msgfetch.secret, temp, 5 + end_len);
+      if (pkt) {
+        if (_msgfetch.out_path_len == OUT_PATH_UNKNOWN) {
+          sendFlood(pkt, CLI_REPLY_DELAY_MILLIS, 0);
+        } else {
+          sendDirect(pkt, _msgfetch.out_path, _msgfetch.out_path_len, CLI_REPLY_DELAY_MILLIS);
+        }
+      }
+      _msgfetch.active = false;
+    }
+  }
+
   // update uptime
   uint32_t now = millis();
   uptime_millis += now - last_millis;
@@ -1398,6 +1496,86 @@ bool MyMesh::hasPendingWork() const {
   if (bridge.isRunning()) return true;  // bridge needs WiFi radio, can't sleep
 #endif
   return _mgr->getOutboundTotal() > 0;
+}
+
+// ---- Message store (channel message store-and-forward) -----------------
+
+void MyMesh::_loadMsgStore() {
+  memset(_msg_store, 0, sizeof(_msg_store));
+  _msg_wr_idx = 0;
+  _msg_count = 0;
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  File f = _fs->open("/msg_store", FILE_O_READ);
+#else
+  File f = _fs->open("/msg_store", "r");
+#endif
+  if (!f) return;
+  f.read((uint8_t*)&_msg_wr_idx, 1);
+  f.read((uint8_t*)&_msg_count, 1);
+  f.read((uint8_t*)_msg_store, sizeof(_msg_store));
+  f.close();
+  // Sanitise — clamp to valid range
+  if (_msg_wr_idx >= MAX_STORED_MSGS) _msg_wr_idx = 0;
+  if (_msg_count > MAX_STORED_MSGS) _msg_count = MAX_STORED_MSGS;
+}
+
+void MyMesh::_saveMsgStore() {
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  File f = _fs->open("/msg_store", FILE_O_WRITE);
+#else
+  File f = _fs->open("/msg_store", "w");
+#endif
+  if (!f) return;
+  f.write((uint8_t*)&_msg_wr_idx, 1);
+  f.write((uint8_t*)&_msg_count, 1);
+  f.write((uint8_t*)_msg_store, sizeof(_msg_store));
+  f.close();
+}
+
+void MyMesh::onGroupDataRecv(mesh::Packet* packet, uint8_t type, const mesh::GroupChannel& channel,
+                             uint8_t* data, size_t len) {
+  if (type != PAYLOAD_TYPE_GRP_TXT || len < 6) return;
+
+  // Find which channel index this is
+  int ch_idx = -1;
+  for (int i = 0; i < _num_channels; i++) {
+    if (memcmp(_channels[i].channel.hash, channel.hash, sizeof(channel.hash)) == 0) {
+      ch_idx = i;
+      break;
+    }
+  }
+  if (ch_idx < 0) return;
+
+  // Payload format: 4B timestamp + 1B flags + text
+  uint32_t ts;
+  memcpy(&ts, data, 4);
+  const char* text = (const char*)&data[5];
+
+  StoredMsg& slot = _msg_store[_msg_wr_idx];
+  memset(&slot, 0, sizeof(slot));
+  slot.valid        = 1;
+  slot.channel_idx  = (uint8_t)ch_idx;
+  slot.snr          = packet->_snr;  // int8_t, x4 (divide by 4.0 for dB)
+  slot.rssi         = (int16_t)_radio->getLastRSSI();
+  slot.timestamp    = ts;
+  // sender_hash: not available from group channel context, leave as zeros
+  strncpy(slot.channel_name, _channels[ch_idx].name, sizeof(slot.channel_name) - 1);
+  strncpy(slot.text, text, sizeof(slot.text) - 1);
+
+  _msg_wr_idx = (_msg_wr_idx + 1) % MAX_STORED_MSGS;
+  if (_msg_count < MAX_STORED_MSGS) _msg_count++;
+  _saveMsgStore();
+}
+
+void MyMesh::getMessages(char* reply, size_t reply_size) {
+  // This reply triggers MsgFetch delivery. The actual multi-DM burst is handled
+  // at the onPeerDataRecv level (same pattern as OMCOLLECT). This callback is
+  // only used for the serial CLI path (sender_timestamp == 0).
+  if (_msg_count == 0) {
+    strncpy(reply, "MSGSTORE_EMPTY", reply_size);
+  } else {
+    snprintf(reply, reply_size, "MSGSTORE_START|%d", (int)_msg_count);
+  }
 }
 
 // ---- Channel management ------------------------------------------------

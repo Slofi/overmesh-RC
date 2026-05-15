@@ -119,6 +119,10 @@ public:
     strncpy(reply, "Error: not supported", reply_size);
     return false;
   };
+
+  virtual void getMessages(char* reply, size_t reply_size) {
+    strncpy(reply, "MSGSTORE_EMPTY", reply_size);
+  };
 };
 
 class CommonCLI {

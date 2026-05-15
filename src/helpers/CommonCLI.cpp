@@ -906,6 +906,8 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
 #endif
   } else if (memcmp(config, "channels", 8) == 0) {
     _callbacks->getChannels(reply, MAX_PACKET_PAYLOAD);
+  } else if (memcmp(config, "messages", 8) == 0 && (config[8] == 0 || config[8] == ' ')) {
+    _callbacks->getMessages(reply, MAX_PACKET_PAYLOAD);
   } else {
     sprintf(reply, "??: %s", config);
   }
