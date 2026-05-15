@@ -729,7 +729,7 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     // "set channel <idx> <name> <key_b64>"
     strcpy(tmp, &config[8]);
     const char* parts[3];
-    int num = mesh::Utils::parseTextParts(tmp, parts, 3);
+    int num = mesh::Utils::parseTextParts(tmp, parts, 3, ' ');
     if (num >= 3) {
       _callbacks->setChannel(atoi(parts[0]), parts[1], parts[2], reply, MAX_PACKET_PAYLOAD);
     } else {
