@@ -110,6 +110,15 @@ public:
   virtual void setRxBoostedGain(bool enable) {
     // no op by default
   };
+
+  virtual void getChannels(char* reply, size_t reply_size) {
+    strncpy(reply, "(none)", reply_size);
+  };
+
+  virtual bool setChannel(int idx, const char* name, const char* key_b64, char* reply, size_t reply_size) {
+    strncpy(reply, "Error: not supported", reply_size);
+    return false;
+  };
 };
 
 class CommonCLI {

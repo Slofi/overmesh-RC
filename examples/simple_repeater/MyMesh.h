@@ -33,6 +33,7 @@
 #include <helpers/StatsFormatHelper.h>
 #include <helpers/TxtDataHelpers.h>
 #include <helpers/RegionMap.h>
+#include <helpers/ChannelDetails.h>
 #include "RateLimiter.h"
 
 #ifdef WITH_BRIDGE
@@ -86,6 +87,7 @@ struct OmcollectCtx {
 #endif
 
 #define FIRMWARE_ROLE "repeater"
+#define MAX_RPTR_CHANNELS 8
 
 #define PACKET_LOG_FILE  "/packet_log"
 
@@ -113,6 +115,8 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   bool region_load_active;
   unsigned long dirty_contacts_expiry;
   OmcollectCtx _omcollect;
+  ChannelDetails _channels[MAX_RPTR_CHANNELS];
+  int _num_channels;
 #if MAX_NEIGHBOURS
   NeighbourInfo neighbours[MAX_NEIGHBOURS];
 #endif
@@ -128,6 +132,9 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
 #elif defined(WITH_ESPNOW_BRIDGE)
   ESPNowBridge bridge;
 #endif
+
+  void _loadChannels();
+  void _saveChannels();
 
   void putNeighbour(const mesh::Identity& id, uint32_t timestamp, float snr);
   uint8_t handleLoginReq(const mesh::Identity& sender, const uint8_t* secret, uint32_t sender_timestamp, const uint8_t* data, bool is_flood);
@@ -235,6 +242,10 @@ public:
 
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply);
   void loop();
+
+  int searchChannelsByHash(const uint8_t* hash, mesh::GroupChannel channels[], int max_matches) override;
+  void getChannels(char* reply, size_t reply_size) override;
+  bool setChannel(int idx, const char* name, const char* key_b64, char* reply, size_t reply_size) override;
 
 #if defined(WITH_BRIDGE)
   void setBridgeState(bool enable) override {

@@ -1,5 +1,6 @@
 #include "MyMesh.h"
 #include <algorithm>
+#include <base64.hpp>
 
 /* ------------------------------ Config -------------------------------- */
 
@@ -907,6 +908,9 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   memset(neighbours, 0, sizeof(neighbours));
 #endif
 
+  memset(_channels, 0, sizeof(_channels));
+  _num_channels = 0;
+
   // defaults
   memset(&_prefs, 0, sizeof(_prefs));
   _prefs.airtime_factor = 1.0;
@@ -962,6 +966,7 @@ void MyMesh::begin(FILESYSTEM *fs) {
   _fs = fs;
   // load persisted prefs
   _cli.loadPrefs(_fs);
+  _loadChannels();
   acl.load(_fs, self_id);
   // TODO: key_store.begin();
   region_map.load(_fs);
@@ -1370,4 +1375,89 @@ bool MyMesh::hasPendingWork() const {
   if (bridge.isRunning()) return true;  // bridge needs WiFi radio, can't sleep
 #endif
   return _mgr->getOutboundTotal() > 0;
+}
+
+// ---- Channel management ------------------------------------------------
+
+void MyMesh::_loadChannels() {
+  memset(_channels, 0, sizeof(_channels));
+  _num_channels = 0;
+  File file = _fs->open("/rptr_channels", "r");
+  if (!file) return;
+  uint8_t unused[4];
+  for (int i = 0; i < MAX_RPTR_CHANNELS; i++) {
+    if (file.read(unused, 4) != 4) break;
+    if (file.read((uint8_t*)_channels[i].name, 32) != 32) break;
+    if (file.read((uint8_t*)_channels[i].channel.secret, 32) != 32) break;
+    bool has_key = false;
+    for (int j = 0; j < 32; j++) if (_channels[i].channel.secret[j]) { has_key = true; break; }
+    if (has_key) {
+      mesh::Utils::sha256(_channels[i].channel.hash, sizeof(_channels[i].channel.hash),
+                          _channels[i].channel.secret, 32);
+      _num_channels = i + 1;
+    }
+  }
+  file.close();
+}
+
+void MyMesh::_saveChannels() {
+  File file = _fs->open("/rptr_channels", "w");
+  if (!file) return;
+  uint8_t unused[4] = {0, 0, 0, 0};
+  for (int i = 0; i < MAX_RPTR_CHANNELS; i++) {
+    file.write(unused, 4);
+    file.write((uint8_t*)_channels[i].name, 32);
+    file.write((uint8_t*)_channels[i].channel.secret, 32);
+  }
+  file.close();
+}
+
+int MyMesh::searchChannelsByHash(const uint8_t* hash, mesh::GroupChannel channels[], int max_matches) {
+  int n = 0;
+  for (int i = 0; i < MAX_RPTR_CHANNELS && n < max_matches; i++) {
+    if (_channels[i].name[0] && _channels[i].channel.hash[0] == hash[0]) {
+      channels[n++] = _channels[i].channel;
+    }
+  }
+  return n;
+}
+
+void MyMesh::getChannels(char* reply, size_t reply_size) {
+  char* p = reply;
+  bool first = true;
+  for (int i = 0; i < MAX_RPTR_CHANNELS; i++) {
+    if (!_channels[i].name[0]) continue;
+    if (!first) { *p++ = ','; }
+    char name[17];
+    strncpy(name, _channels[i].name, 16);
+    name[16] = 0;
+    int written = snprintf(p, reply + reply_size - p - 1, "%d:%s", i, name);
+    if (written > 0) p += written;
+    first = false;
+    if ((size_t)(p - reply) > reply_size - 32) break;
+  }
+  if (first) strncpy(reply, "(none)", reply_size);
+  else *p = 0;
+}
+
+bool MyMesh::setChannel(int idx, const char* name, const char* key_b64, char* reply, size_t reply_size) {
+  if (idx < 0 || idx >= MAX_RPTR_CHANNELS) {
+    snprintf(reply, reply_size, "Error: idx must be 0-%d", MAX_RPTR_CHANNELS - 1);
+    return false;
+  }
+  uint8_t secret[32];
+  memset(secret, 0, sizeof(secret));
+  int len = decode_base64((unsigned char*)key_b64, strlen(key_b64), secret);
+  if (len != 16 && len != 32) {
+    snprintf(reply, reply_size, "Error: key must be 16 or 32 bytes base64");
+    return false;
+  }
+  memset(&_channels[idx], 0, sizeof(_channels[idx]));
+  strncpy(_channels[idx].name, name, sizeof(_channels[idx].name) - 1);
+  memcpy(_channels[idx].channel.secret, secret, len);
+  mesh::Utils::sha256(_channels[idx].channel.hash, sizeof(_channels[idx].channel.hash), secret, len);
+  if (idx >= _num_channels) _num_channels = idx + 1;
+  _saveChannels();
+  snprintf(reply, reply_size, "OK - channel %d: %s", idx, name);
+  return true;
 }

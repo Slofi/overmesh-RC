@@ -725,6 +725,16 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
       _prefs->adc_multiplier = 0.0f;
       strcpy(reply, "Error: unsupported by this board");
     };
+  } else if (memcmp(config, "channel ", 8) == 0) {
+    // "set channel <idx> <name> <key_b64>"
+    strcpy(tmp, &config[8]);
+    const char* parts[3];
+    int num = mesh::Utils::parseTextParts(tmp, parts, 3);
+    if (num >= 3) {
+      _callbacks->setChannel(atoi(parts[0]), parts[1], parts[2], reply, MAX_PACKET_PAYLOAD);
+    } else {
+      strcpy(reply, "Error: usage: set channel <idx> <name> <key_b64>");
+    }
   } else {
     sprintf(reply, "unknown config: %s", config);
   }
@@ -1011,6 +1021,8 @@ void CommonCLI::handleRegionCmd(char* command, char* reply) {
     if (len == 0) {
       strcpy(reply, "-none-");
     }
+  } else if (memcmp(config, "channels", 8) == 0) {
+    _callbacks->getChannels(reply, MAX_PACKET_PAYLOAD);
   } else {
     strcpy(reply, "Err - ??");
   }
