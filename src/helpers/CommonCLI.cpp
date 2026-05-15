@@ -282,10 +282,31 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
         strcpy(reply, "Error, invalid params");
       }
     } else if (memcmp(command, "password ", 9) == 0) {
-      // change admin password
-      StrHelper::strncpy(_prefs->password, &command[9], sizeof(_prefs->password));
-      savePrefs();
-      sprintf(reply, "password now: %s", _prefs->password);   // echo back just to let admin know for sure!!
+      if (sender_timestamp == 0) {
+        // Serial (physical access): single-arg form — set new password directly
+        StrHelper::strncpy(_prefs->password, &command[9], sizeof(_prefs->password));
+        savePrefs();
+        sprintf(reply, "password now: %s", _prefs->password);
+      } else {
+        // DM: require old password — format: password <old> <new>
+        char pw_tmp[64];
+        StrHelper::strncpy(pw_tmp, &command[9], sizeof(pw_tmp));
+        char* sp = strchr(pw_tmp, ' ');
+        if (!sp) {
+          strcpy(reply, "Error: usage: password <old> <new>");
+        } else {
+          *sp = 0;
+          const char* old_pwd = pw_tmp;
+          const char* new_pwd = sp + 1;
+          if (strcmp(old_pwd, _prefs->password) != 0) {
+            strcpy(reply, "Error: wrong password");
+          } else {
+            StrHelper::strncpy(_prefs->password, new_pwd, sizeof(_prefs->password));
+            savePrefs();
+            sprintf(reply, "password now: %s", _prefs->password);
+          }
+        }
+      }
     } else if (memcmp(command, "clear stats", 11) == 0) {
       _callbacks->clearStats();
       strcpy(reply, "(OK - stats reset)");
