@@ -254,10 +254,18 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       _board->reboot();  // doesn't return
      } else if (memcmp(command, "advert.zerohop", 14) == 0 && (command[14] == 0 || command[14] == ' ')) {
       // send zerohop advert
+      uint32_t curr = getRTCClock()->getCurrentTime();
+      if (sender_timestamp >= curr) {
+        getRTCClock()->setCurrentTime(sender_timestamp + 1);
+      }
       _callbacks->sendSelfAdvertisement(1500, false);  // longer delay, give CLI response time to be sent first
       strcpy(reply, "OK - zerohop advert sent");
     } else if (memcmp(command, "advert", 6) == 0) {
       // send flood advert
+      uint32_t curr = getRTCClock()->getCurrentTime();
+      if (sender_timestamp >= curr) {
+        getRTCClock()->setCurrentTime(sender_timestamp + 1);
+      }
       _callbacks->sendSelfAdvertisement(1500, true);  // longer delay, give CLI response time to be sent first
       strcpy(reply, "OK - Advert sent");
     } else if (memcmp(command, "clock sync", 10) == 0) {
