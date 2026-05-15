@@ -1,6 +1,29 @@
 #include "MyMesh.h"
 #include <algorithm>
-#include <base64.hpp>
+
+static int _b64_decode(const char* src, uint8_t* dst, int max_len) {
+  auto v = [](char c) -> int {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+  };
+  int out = 0, bits = 0, val = 0;
+  for (const char* p = src; *p && *p != '='; p++) {
+    int d = v(*p);
+    if (d < 0) continue;
+    val = (val << 6) | d;
+    bits += 6;
+    if (bits >= 8) {
+      if (out >= max_len) return out;
+      dst[out++] = (uint8_t)((val >> (bits - 8)) & 0xFF);
+      bits -= 8;
+    }
+  }
+  return out;
+}
 
 /* ------------------------------ Config -------------------------------- */
 
@@ -1447,7 +1470,7 @@ bool MyMesh::setChannel(int idx, const char* name, const char* key_b64, char* re
   }
   uint8_t secret[32];
   memset(secret, 0, sizeof(secret));
-  int len = decode_base64((unsigned char*)key_b64, strlen(key_b64), secret);
+  int len = _b64_decode(key_b64, secret, (int)sizeof(secret));
   if (len != 16 && len != 32) {
     snprintf(reply, reply_size, "Error: key must be 16 or 32 bytes base64");
     return false;

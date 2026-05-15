@@ -896,6 +896,8 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
 #else
     strcpy(reply, "ERROR: Power management not supported");
 #endif
+  } else if (memcmp(config, "channels", 8) == 0) {
+    _callbacks->getChannels(reply, MAX_PACKET_PAYLOAD);
   } else {
     sprintf(reply, "??: %s", config);
   }
@@ -1021,8 +1023,6 @@ void CommonCLI::handleRegionCmd(char* command, char* reply) {
     if (len == 0) {
       strcpy(reply, "-none-");
     }
-  } else if (memcmp(config, "channels", 8) == 0) {
-    _callbacks->getChannels(reply, MAX_PACKET_PAYLOAD);
   } else {
     strcpy(reply, "Err - ??");
   }
