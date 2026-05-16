@@ -147,13 +147,15 @@ uint8_t MyMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* secr
     }
     // Use last_login_ts (not last_timestamp) — login and cmd timestamps come from different
     // clock sources (MC radio vs Python time.time()), so they must be tracked separately.
+    // A valid repeated login should still receive a response; remote admins must not need
+    // physical access just because a client reused or lagged its login timestamp.
     if (sender_timestamp <= client->last_login_ts) {
-      MESH_DEBUG_PRINTLN("Possible login replay attack!");
-      return 0;
+      MESH_DEBUG_PRINTLN("Stale login timestamp; accepting valid password without advancing login replay guard");
+    } else {
+      client->last_login_ts = sender_timestamp;
     }
 
     MESH_DEBUG_PRINTLN("Login success!");
-    client->last_login_ts = sender_timestamp;
     client->last_activity = getRTCClock()->getCurrentTime();
     client->permissions &= ~0x03;
     client->permissions |= perms;
@@ -420,6 +422,13 @@ mesh::Packet *MyMesh::createSelfAdvert() {
   uint8_t app_data_len = _cli.buildAdvertData(ADV_TYPE_REPEATER, app_data);
 
   return createAdvert(self_id, app_data, app_data_len);
+}
+
+mesh::Packet *MyMesh::createSelfAdvert(uint32_t emitted_timestamp) {
+  uint8_t app_data[MAX_ADVERT_DATA_SIZE];
+  uint8_t app_data_len = _cli.buildAdvertData(ADV_TYPE_REPEATER, app_data);
+
+  return createAdvertAt(self_id, emitted_timestamp, app_data, app_data_len);
 }
 
 File MyMesh::openAppend(const char *fname) {
@@ -1108,6 +1117,19 @@ bool MyMesh::formatFileSystem() {
 
 void MyMesh::sendSelfAdvertisement(int delay_millis, bool flood) {
   mesh::Packet *pkt = createSelfAdvert();
+  if (pkt) {
+    if (flood) {
+      sendFloodScoped(default_scope, pkt, delay_millis, _prefs.path_hash_mode + 1);
+    } else {
+      sendZeroHop(pkt, delay_millis);
+    }
+  } else {
+    MESH_DEBUG_PRINTLN("ERROR: unable to create advertisement packet!");
+  }
+}
+
+void MyMesh::sendSelfAdvertisementAt(int delay_millis, bool flood, uint32_t emitted_timestamp) {
+  mesh::Packet *pkt = createSelfAdvert(emitted_timestamp);
   if (pkt) {
     if (flood) {
       sendFloodScoped(default_scope, pkt, delay_millis, _prefs.path_hash_mode + 1);

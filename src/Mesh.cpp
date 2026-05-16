@@ -388,6 +388,10 @@ void Mesh::routeDirectRecvAcks(Packet* packet, uint32_t delay_millis) {
 }
 
 Packet* Mesh::createAdvert(const LocalIdentity& id, const uint8_t* app_data, size_t app_data_len) {
+  return createAdvertAt(id, _rtc->getCurrentTime(), app_data, app_data_len);
+}
+
+Packet* Mesh::createAdvertAt(const LocalIdentity& id, uint32_t emitted_timestamp, const uint8_t* app_data, size_t app_data_len) {
   if (app_data_len > MAX_ADVERT_DATA_SIZE) return NULL;
 
   Packet* packet = obtainNewPacket();
@@ -401,7 +405,6 @@ Packet* Mesh::createAdvert(const LocalIdentity& id, const uint8_t* app_data, siz
   int len = 0;
   memcpy(&packet->payload[len], id.pub_key, PUB_KEY_SIZE); len += PUB_KEY_SIZE;
 
-  uint32_t emitted_timestamp = _rtc->getCurrentTime();
   memcpy(&packet->payload[len], &emitted_timestamp, 4); len += 4;
 
   uint8_t* signature = &packet->payload[len]; len += SIGNATURE_SIZE;  // will fill this in later

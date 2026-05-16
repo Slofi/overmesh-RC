@@ -71,6 +71,9 @@ public:
   virtual const char* getRole() = 0;
   virtual bool formatFileSystem() = 0;
   virtual void sendSelfAdvertisement(int delay_millis, bool flood) = 0;
+  virtual void sendSelfAdvertisementAt(int delay_millis, bool flood, uint32_t emitted_timestamp) {
+    sendSelfAdvertisement(delay_millis, flood);
+  }
   virtual void updateAdvertTimer() = 0;
   virtual void updateFloodAdvertTimer() = 0;
   virtual void setLoggingOn(bool enable) = 0;

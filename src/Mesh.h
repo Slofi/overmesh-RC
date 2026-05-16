@@ -182,6 +182,7 @@ public:
   RTCClock* getRTCClock() const { return _rtc; }
 
   Packet* createAdvert(const LocalIdentity& id, const uint8_t* app_data=NULL, size_t app_data_len=0);
+  Packet* createAdvertAt(const LocalIdentity& id, uint32_t emitted_timestamp, const uint8_t* app_data=NULL, size_t app_data_len=0);
   Packet* createDatagram(uint8_t type, const Identity& dest, const uint8_t* secret, const uint8_t* data, size_t len);
   Packet* createAnonDatagram(uint8_t type, const LocalIdentity& sender, const Identity& dest, const uint8_t* secret, const uint8_t* data, size_t data_len);
   Packet* createGroupDatagram(uint8_t type, const GroupChannel& channel, const uint8_t* data, size_t data_len);
