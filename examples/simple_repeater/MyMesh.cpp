@@ -695,13 +695,20 @@ void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32
                           const uint8_t *app_data, size_t app_data_len) {
   mesh::Mesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len); // chain to super impl
 
-  // RC: OBS|ADV — full-identity observation (pubkey + signal)
+  // RC: OBS|ADV — full-identity observation (pubkey + signal + name + GPS)
+  AdvertDataParser adv_parser(app_data, app_data_len);
+  const char* adv_name = (adv_parser.isValid() && adv_parser.hasName()) ? adv_parser.getName() : "";
+  bool adv_has_pos = adv_parser.isValid() && adv_parser.hasLatLon();
+  char adv_pos[32] = "";
+  if (adv_has_pos) {
+    snprintf(adv_pos, sizeof(adv_pos), "%.6f|%.6f", adv_parser.getLat(), adv_parser.getLon());
+  }
   Serial.print("OBS|ADV|");
   mesh::Utils::printHex(Serial, id.pub_key, PUB_KEY_SIZE);
-  Serial.printf("|%.1f|%.1f|%lu\n", _radio->getLastRSSI(), packet->getSNR(), (unsigned long)(millis()/1000));
+  Serial.printf("|%.1f|%.1f|%lu|%s|%s\n", _radio->getLastRSSI(), packet->getSNR(), (unsigned long)(millis()/1000), adv_name, adv_pos);
   RC_SERIAL.print("OBS|ADV|");
   mesh::Utils::printHex(RC_SERIAL, id.pub_key, PUB_KEY_SIZE);
-  RC_SERIAL.printf("|%.1f|%.1f|%lu\n", _radio->getLastRSSI(), packet->getSNR(), (unsigned long)(millis()/1000));
+  RC_SERIAL.printf("|%.1f|%.1f|%lu|%s|%s\n", _radio->getLastRSSI(), packet->getSNR(), (unsigned long)(millis()/1000), adv_name, adv_pos);
 
   // if this a zero hop advert (and not via 'Share'), add it to neighbours
   if (packet->path_len == 0 && !isShare(packet)) {
