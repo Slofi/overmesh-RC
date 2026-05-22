@@ -794,7 +794,7 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
       char *reply = (char *)&temp[5];
       if (is_retry) {
         *reply = 0;
-      } else if (strcmp(command, "OMCOLLECT") == 0) {
+      } else if (strcmp(command, "OMCOLLECT") == 0 || strcmp(command, "OMCOUNT") == 0) {
         // RC: store requester context, trigger RP2040 relay over serial
         _omcollect.active = true;
         _omcollect.requester = client->id;
@@ -803,8 +803,8 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
         if (client->out_path_len != OUT_PATH_UNKNOWN && client->out_path_len > 0) {
           memcpy(_omcollect.out_path, client->out_path, client->out_path_len);
         }
-        Serial.println("OMCOLLECT");
-        RC_SERIAL.println("OMCOLLECT");
+        Serial.println(command);
+        RC_SERIAL.println(command);
         *reply = 0; // no immediate reply — RP2040 sends RELAY| lines that become individual DMs
       } else if (strcmp(command, "get messages") == 0) {
         // RC: store-and-forward — deliver stored channel messages as DM burst
