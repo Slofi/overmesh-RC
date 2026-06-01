@@ -19,6 +19,8 @@ void halt() {
 
 static char command[160];
 static char rc_command[160];
+static bool command_overflow = false;
+static bool rc_command_overflow = false;
 
 #ifdef HELTEC_T114
   #define RC_SERIAL Serial2
@@ -123,24 +125,39 @@ void setup() {
 static unsigned long _rc_last_hb = 0;
 #endif
 
-static bool readCommandLine(Stream& port, char* buf, size_t buf_size, bool echo) {
+static bool readCommandLine(Stream& port, char* buf, size_t buf_size, bool echo, bool* overflow) {
   int len = strlen(buf);
-  while (port.available() && len < (int)buf_size - 1) {
+  while (port.available()) {
     char c = port.read();
-    if (c != '\n') {
+
+    if (c == '\r' || c == '\n') {
+      if (echo && len > 0) Serial.print('\n');
+      if (overflow && *overflow) {
+        *overflow = false;
+        buf[0] = 0;
+        return false;
+      }
+      if (len == 0) {
+        buf[0] = 0;
+        return false;
+      }
+      buf[len] = 0;
+      return true;
+    }
+
+    if (overflow && *overflow) {
+      continue;
+    }
+
+    if (len < (int)buf_size - 1) {
       buf[len++] = c;
       buf[len] = 0;
       if (echo) Serial.print(c);
+    } else {
+      if (overflow) *overflow = true;
+      buf[0] = 0;
+      len = 0;
     }
-    if (c == '\r') break;
-  }
-  if (len == (int)buf_size - 1) {
-    buf[buf_size - 1] = '\r';
-  }
-  if (len > 0 && buf[len - 1] == '\r') {
-    if (echo) Serial.print('\n');
-    buf[len - 1] = 0;
-    return true;
   }
   return false;
 }
@@ -153,7 +170,7 @@ void loop() {
   }
 #endif
 
-  if (readCommandLine(Serial, command, sizeof(command), true)) {
+  if (readCommandLine(Serial, command, sizeof(command), true, &command_overflow)) {
     char reply[160];
     the_mesh.handleCommand(0, command, reply);  // NOTE: there is no sender_timestamp via serial!
     if (reply[0]) {
@@ -164,7 +181,7 @@ void loop() {
   }
 
 #ifdef HELTEC_T114
-  if (readCommandLine(RC_SERIAL, rc_command, sizeof(rc_command), false)) {
+  if (readCommandLine(RC_SERIAL, rc_command, sizeof(rc_command), false, &rc_command_overflow)) {
     char reply[160];
     the_mesh.handleCommand(0, rc_command, reply);
     if (reply[0]) {

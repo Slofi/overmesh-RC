@@ -841,7 +841,7 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
 
         auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
         if (reply) {
-          if (client->out_path_len == OUT_PATH_UNKNOWN) {
+          if (packet->isRouteFlood() || client->out_path_len == OUT_PATH_UNKNOWN) {
             sendFloodReply(reply, CLI_REPLY_DELAY_MILLIS, packet->getPathHashSize());
           } else {
             sendDirect(reply, client->out_path, client->out_path_len, CLI_REPLY_DELAY_MILLIS);
